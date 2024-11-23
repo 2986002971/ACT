@@ -27,45 +27,62 @@ You can find all scripted/human demo for simulated environments [here](https://d
 
 ### Installation
 
-    conda create -n aloha python=3.8.10
-    conda activate aloha
-    pip install torchvision
-    pip install torch
-    pip install pyquaternion
-    pip install pyyaml
-    pip install rospkg
-    pip install pexpect
-    pip install mujoco==2.3.7
-    pip install dm_control==1.0.14
-    pip install opencv-python
-    pip install matplotlib
-    pip install einops
-    pip install packaging
-    pip install h5py
-    pip install ipython
-    cd act/detr && pip install -e .
+我们使用pixi进行包管理。首先安装pixi:
+
+Linux & macOS:
+```bash
+curl -fsSL https://pixi.sh/install.sh | bash
+```
+
+Windows:
+```powershell
+iwr -useb https://pixi.sh/install.ps1 | iex
+```
+
+安装完成后,在项目根目录运行:
+```bash
+pixi install
+```
+
+这将自动安装所有必需的依赖项。
 
 ### Example Usages
 
-To set up a new terminal, run:
-
-    conda activate aloha
-    cd <path to act repo>
+要激活pixi环境,在终端中运行:
+```bash
+pixi shell
+```
 
 ### Simulated experiments
 
-We use ``sim_transfer_cube_scripted`` task in the examples below. Another option is ``sim_insertion_scripted``.
-To generated 50 episodes of scripted data, run:
+我们使用 ``sim_transfer_cube_scripted`` 任务作为示例。另一个可选任务是 ``sim_insertion_scripted``。
 
-    python3 record_sim_episodes.py \
-    --task_name sim_transfer_cube_scripted \
-    --dataset_dir <data save dir> \
-    --num_episodes 50
+数据集的保存路径和数量配置在 `constants.py` 中的 `SIM_TASK_CONFIGS` 字典中。默认配置如下:
+```python
+DATA_DIR = "data"  # 数据保存的默认路径
+SIM_TASK_CONFIGS = {
+    "sim_transfer_cube_scripted": {
+        "dataset_dir": DATA_DIR + "/sim_transfer_cube_scripted",
+        "num_episodes": 50,
+        "episode_len": 400,
+        "camera_names": ["top"],
+    },
+    ...
+}
+```
 
-To can add the flag ``--onscreen_render`` to see real-time rendering.
-To visualize the episode after it is collected, run
+你可以根据需要修改这些配置。要生成示教数据，运行:
 
-    python3 visualize_episodes.py --dataset_dir <data save dir> --episode_idx 0
+```bash
+python3 record_sim_episodes.py --task_name sim_transfer_cube_scripted
+```
+
+可以添加 ``--onscreen_render`` 参数来查看实时渲染。
+要查看记录的数据集，运行:
+
+```bash
+python3 visualize_episodes.py --dataset_dir data/sim_transfer_cube_scripted --episode_idx 0
+```
 
 To train ACT:
     

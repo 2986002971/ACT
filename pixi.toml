@@ -1,0 +1,33 @@
+[project]
+authors = ["horned_axe <horned_axe@proton.me>"]
+channels = ["nvidia/label/cuda-12.4.0","nvidia", "conda-forge", "pytorch"]
+description = "Add a short description here"
+name = "ACT"
+platforms = ["linux-64"]
+version = "0.1.0"
+
+[tasks]
+
+[dependencies]
+python = "*"
+pip = "*"
+cuda = {version = "*", channel = "nvidia/label/cuda-12.4.0"}
+pytorch = {version = "*", channel = "pytorch"}
+torchvision = {version = "*", channel = "pytorch"}
+pytorch-cuda = {version = "*", channel = "pytorch"}
+pyquaternion = "0.9.9"
+pyyaml = "6.0"
+rospkg = "1.5.0"  #其实没用到
+pexpect = "4.8.0"
+mujoco = "2.3.3"  #旧版，act仓库中使用的版本
+# mujoco = "3.2.5"  #新版，aloha2中使用的版本
+dm_control = "1.0.9"
+opencv = "4.7.0"
+matplotlib = "3.7.1"
+einops = "0.6.0"
+packaging = "23.0"
+h5py = "3.8.0"
+ipython = "8.12.0"
+
+[pypi-dependencies]
+detr = {path = "detr"}
