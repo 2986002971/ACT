@@ -203,6 +203,30 @@ def sample_insertion_pose():
     return peg_pose, socket_pose
 
 
+def sample_cube_and_plate_pose():
+    # 红色立方体
+    x_range = [0.1, 0.2]  # 在机械臂右侧
+    y_range = [0.4, 0.6]  # 与原来相同的前后范围
+    z_range = [0.05, 0.05]  # 固定高度
+
+    ranges = np.vstack([x_range, y_range, z_range])
+    cube_position = np.random.uniform(ranges[:, 0], ranges[:, 1])
+    cube_quat = np.array([1, 0, 0, 0])
+    cube_pose = np.concatenate([cube_position, cube_quat])
+
+    # 绿色板子
+    x_range = [-0.2, -0.1]  # 在机械臂左侧
+    y_range = [0.4, 0.6]  # 与立方体相同的前后范围
+    z_range = [0.02, 0.02]  # 固定高度，比立方体低一些
+
+    ranges = np.vstack([x_range, y_range, z_range])
+    plate_position = np.random.uniform(ranges[:, 0], ranges[:, 1])
+    plate_quat = np.array([1, 0, 0, 0])
+    plate_pose = np.concatenate([plate_position, plate_quat])
+
+    return cube_pose, plate_pose
+
+
 ### helper functions
 
 

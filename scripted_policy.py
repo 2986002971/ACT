@@ -301,17 +301,127 @@ class InsertionPolicy(BasePolicy):
         ]
 
 
+class MoveCubeToPlatePolicy(BasePolicy):
+    def generate_trajectory(self, ts_first):
+        init_mocap_pose = ts_first.observation["mocap_pose"]
+
+        # 获取物体位置
+        env_state = np.array(ts_first.observation["env_state"])
+        cube_pose = env_state[:7]  # 立方体的完整位姿
+        plate_pose = env_state[7:]  # 板子的完整位姿
+
+        cube_xyz = cube_pose[:3]  # 立方体位置
+        plate_xyz = plate_pose[:3]  # 板子位置
+
+        # 设置抓取姿态（参考PickAndTransferPolicy）
+        gripper_quat = Quaternion(init_mocap_pose[3:])
+        gripper_quat = gripper_quat * Quaternion(axis=[0.0, 1.0, 0.0], degrees=-60)
+
+        self.right_trajectory = [
+            {
+                "t": 0,
+                "xyz": init_mocap_pose[:3],
+                "quat": init_mocap_pose[3:],
+                "gripper": 0,  # 开始时闭合夹爪
+            },
+            {
+                "t": 90,
+                "xyz": cube_xyz + np.array([0, 0, 0.08]),  # 使用相同的预备高度
+                "quat": gripper_quat.elements,
+                "gripper": 1,  # 打开夹爪
+            },
+            {
+                "t": 130,
+                "xyz": cube_xyz + np.array([0, 0, -0.015]),  # 使用相同的抓取高度
+                "quat": gripper_quat.elements,
+                "gripper": 1,
+            },
+            {
+                "t": 170,
+                "xyz": cube_xyz + np.array([0, 0, -0.015]),
+                "quat": gripper_quat.elements,
+                "gripper": 0,  # 闭合夹爪
+            },
+            {
+                "t": 220,
+                "xyz": cube_xyz + np.array([0, 0, 0.08]),  # 提起到预备高度
+                "quat": gripper_quat.elements,
+                "gripper": 0,
+            },
+            {
+                "t": 280,
+                "xyz": plate_xyz + np.array([0, 0, 0.08]),  # 移动到板子上方
+                "quat": gripper_quat.elements,
+                "gripper": 0,
+            },
+            {
+                "t": 320,
+                "xyz": plate_xyz + np.array([0, 0, 0.03]),  # 下降到放置高度
+                "quat": gripper_quat.elements,
+                "gripper": 0,
+            },
+            {
+                "t": 360,
+                "xyz": plate_xyz + np.array([0, 0, 0.03]),
+                "quat": gripper_quat.elements,
+                "gripper": 1,  # 释放
+            },
+            {
+                "t": 400,
+                "xyz": plate_xyz + np.array([0, 0, 0.15]),  # 抬起
+                "quat": gripper_quat.elements,
+                "gripper": 1,
+            },
+        ]
+
+        # 为了兼容基类的逻辑，我们创建一个空的左臂轨迹
+        self.left_trajectory = [
+            {
+                "t": t,
+                "xyz": np.zeros(3),
+                "quat": np.array([1, 0, 0, 0]),
+                "gripper": 0,
+            }
+            for t in [0, 400]
+        ]
+
+    def __call__(self, ts):
+        # 重写父类的 __call__ 方法，只返回右臂（主要机械臂）的动作
+        if self.step_count == 0:
+            self.generate_trajectory(ts)
+
+        if self.right_trajectory[0]["t"] == self.step_count:
+            self.curr_right_waypoint = self.right_trajectory.pop(0)
+        next_right_waypoint = self.right_trajectory[0]
+
+        right_xyz, right_quat, right_gripper = self.interpolate(
+            self.curr_right_waypoint, next_right_waypoint, self.step_count
+        )
+
+        if self.inject_noise:
+            scale = 0.01
+            right_xyz = right_xyz + np.random.uniform(-scale, scale, right_xyz.shape)
+
+        action = np.concatenate([right_xyz, right_quat, [right_gripper]])
+
+        self.step_count += 1
+        return action
+
+
 def test_policy(task_name):
-    # example rolling out pick_and_transfer policy
     onscreen_render = True
     inject_noise = False
 
-    # setup the environment
     episode_len = SIM_TASK_CONFIGS[task_name]["episode_len"]
-    if "sim_transfer_cube" in task_name:
+    if task_name == "sim_move_cube_to_plate":
+        env = make_ee_sim_env("sim_move_cube_to_plate")
+        policy_class = MoveCubeToPlatePolicy
+    elif "sim_transfer_cube" in task_name:
         env = make_ee_sim_env("sim_transfer_cube")
+        policy_class = PickAndTransferPolicy
     elif "sim_insertion" in task_name:
         env = make_ee_sim_env("sim_insertion")
+        policy_class = InsertionPolicy
     else:
         raise NotImplementedError
 
@@ -323,7 +433,7 @@ def test_policy(task_name):
             plt_img = ax.imshow(ts.observation["images"]["angle"])
             plt.ion()
 
-        policy = PickAndTransferPolicy(inject_noise)
+        policy = policy_class(inject_noise)
         for step in range(episode_len):
             action = policy(ts)
             ts = env.step(action)
@@ -341,5 +451,5 @@ def test_policy(task_name):
 
 
 if __name__ == "__main__":
-    test_task_name = "sim_transfer_cube_scripted"
+    test_task_name = "sim_move_cube_to_plate"  # 修改默认测试任务
     test_policy(test_task_name)

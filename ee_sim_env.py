@@ -16,9 +16,11 @@ from constants import (
     START_ARM_POSE,
     XML_DIR,
 )
-from utils import sample_box_pose, sample_insertion_pose
+from utils import sample_box_pose, sample_cube_and_plate_pose, sample_insertion_pose
 
 e = IPython.embed
+
+BOX_POSE = [None, None]  # [cube_pose, plate_pose] to be changed from outside
 
 
 def make_ee_sim_env(task_name):
@@ -63,9 +65,67 @@ def make_ee_sim_env(task_name):
             n_sub_steps=None,
             flat_observation=False,
         )
+    elif "sim_move_cube_to_plate" in task_name:
+        xml_path = os.path.join(XML_DIR, "single_viperx_ee_cube_plate.xml")
+        physics = mujoco.Physics.from_xml_path(xml_path)
+        task = MoveCubeToPlateSingleEETask(random=False)
+        env = control.Environment(
+            physics,
+            task,
+            time_limit=20,
+            control_timestep=DT,
+            n_sub_steps=None,
+            flat_observation=False,
+        )
     else:
         raise NotImplementedError
     return env
+
+
+class SingleArmViperXEETask(base.Task):
+    def __init__(self, random=None):
+        super().__init__(random=random)
+
+    def before_step(self, action, physics):
+        # 只需要处理一个机械臂的动作
+        # set mocap position and quat
+        np.copyto(physics.data.mocap_pos[0], action[:3])
+        np.copyto(physics.data.mocap_quat[0], action[3:7])
+
+        # set gripper
+        g_ctrl = PUPPET_GRIPPER_POSITION_UNNORMALIZE_FN(action[7])
+        np.copyto(physics.data.ctrl, np.array([g_ctrl, -g_ctrl]))
+
+    def initialize_robots(self, physics):
+        # reset joint position (只需要一个机械臂的关节)
+        physics.named.data.qpos[:8] = START_ARM_POSE[:8]
+
+        # reset mocap to align with end effector
+        np.copyto(physics.data.mocap_pos[0], [-0.31718881, 0.5, 0.29525084])
+        np.copyto(physics.data.mocap_quat[0], [1, 0, 0, 0])
+
+        # reset gripper control
+        close_gripper_control = np.array(
+            [
+                PUPPET_GRIPPER_POSITION_CLOSE,
+                -PUPPET_GRIPPER_POSITION_CLOSE,
+            ]
+        )
+        np.copyto(physics.data.ctrl, close_gripper_control)
+
+    @staticmethod
+    def get_qpos(physics):
+        qpos_raw = physics.data.qpos.copy()
+        arm_qpos = qpos_raw[:6]
+        gripper_qpos = [PUPPET_GRIPPER_POSITION_NORMALIZE_FN(qpos_raw[6])]
+        return np.concatenate([arm_qpos, gripper_qpos])
+
+    @staticmethod
+    def get_qvel(physics):
+        qvel_raw = physics.data.qvel.copy()
+        arm_qvel = qvel_raw[:6]
+        gripper_qvel = [PUPPET_GRIPPER_VELOCITY_NORMALIZE_FN(qvel_raw[6])]
+        return np.concatenate([arm_qvel, gripper_qvel])
 
 
 class BimanualViperXEETask(base.Task):
@@ -327,3 +387,84 @@ class InsertionEETask(BimanualViperXEETask):
         if pin_touched:  # successful insertion
             reward = 4
         return reward
+
+
+class MoveCubeToPlateSingleEETask(SingleArmViperXEETask):
+    def __init__(self, random=None):
+        super().__init__(random=random)
+        self.max_reward = 3
+
+    def initialize_episode(self, physics):
+        """Sets the state of the environment at the start of each episode."""
+        # 初始化机器人
+        self.initialize_robots(physics)
+
+        # 随机化立方体和板子的位置
+        cube_pose, plate_pose = sample_cube_and_plate_pose()
+        BOX_POSE[0] = cube_pose
+        BOX_POSE[1] = plate_pose
+
+        # 设置物体位置
+        with physics.reset_context():
+            # 立方体位置
+            physics.named.data.qpos[8:15] = BOX_POSE[0]
+            # 板子位置
+            physics.named.data.qpos[15:] = BOX_POSE[1]
+
+        super().initialize_episode(physics)
+
+    @staticmethod
+    def get_env_state(physics):
+        # 跳过机器人的8个关节，获取环境状态（立方体和板子的位姿）
+        env_state = physics.data.qpos.copy()[8:]  # 14维：两个物体各7维
+        return env_state
+
+    def get_reward(self, physics):
+        # 检查接触情况
+        all_contact_pairs = []
+        for i_contact in range(physics.data.ncon):
+            id_geom_1 = physics.data.contact[i_contact].geom1
+            id_geom_2 = physics.data.contact[i_contact].geom2
+            name_geom_1 = physics.model.id2name(id_geom_1, "geom")
+            name_geom_2 = physics.model.id2name(id_geom_2, "geom")
+            contact_pair = (name_geom_1, name_geom_2)
+            all_contact_pairs.append(contact_pair)
+
+        touch_gripper = (
+            "red_cube",
+            "vx300s_right/10_right_gripper_finger",
+        ) in all_contact_pairs
+        cube_touch_table = ("red_cube", "table") in all_contact_pairs
+        cube_touch_plate = ("red_cube", "green_plate") in all_contact_pairs
+
+        reward = 0
+        if touch_gripper:  # 抓住立方体
+            reward = 1
+        if touch_gripper and not cube_touch_table:  # 抬起立方体
+            reward = 2
+        if cube_touch_plate and not cube_touch_table:  # 成功放置在板子上
+            reward = 3
+        return reward
+
+    def get_observation(self, physics):
+        # note: it is important to do .copy()
+        obs = collections.OrderedDict()
+        obs["qpos"] = self.get_qpos(physics)
+        obs["qvel"] = self.get_qvel(physics)
+        obs["env_state"] = self.get_env_state(physics)
+        obs["images"] = dict()
+        obs["images"]["top"] = physics.render(height=480, width=640, camera_id="top")
+        obs["images"]["angle"] = physics.render(
+            height=480, width=640, camera_id="angle"
+        )
+        obs["images"]["vis"] = physics.render(
+            height=480, width=640, camera_id="front_close"
+        )
+        # 只需要一个机械臂的 mocap 位姿
+        obs["mocap_pose"] = np.concatenate(
+            [physics.data.mocap_pos[0], physics.data.mocap_quat[0]]
+        ).copy()
+
+        # 用于回放关节轨迹
+        obs["gripper_ctrl"] = physics.data.ctrl.copy()
+        return obs

@@ -18,6 +18,7 @@ from utils import (  # robot functions  # helper functions
     detach_dict,
     load_data,  # data functions
     sample_box_pose,
+    sample_cube_and_plate_pose,
     sample_insertion_pose,
     set_seed,
 )
@@ -54,7 +55,7 @@ def main(args):
     camera_names = task_config["camera_names"]
 
     # fixed parameters
-    state_dim = 14
+    state_dim = 7
     lr_backbone = 1e-5
     backbone = "resnet18"
     if policy_class == "ACT":
@@ -189,8 +190,11 @@ def eval_bc(config, ckpt_name, save_episode=True):
     with open(stats_path, "rb") as f:
         stats = pickle.load(f)
 
-    pre_process = lambda s_qpos: (s_qpos - stats["qpos_mean"]) / stats["qpos_std"]
-    post_process = lambda a: a * stats["action_std"] + stats["action_mean"]
+    def pre_process(s_qpos):
+        return (s_qpos - stats["qpos_mean"]) / stats["qpos_std"]
+
+    def post_process(a):
+        return a * stats["action_std"] + stats["action_mean"]
 
     # load environment
     if real_robot:
@@ -218,10 +222,14 @@ def eval_bc(config, ckpt_name, save_episode=True):
     for rollout_id in range(num_rollouts):
         rollout_id += 0
         ### set task
-        if "sim_transfer_cube" in task_name:
+        if "sim_move_cube_to_plate" in task_name:
+            cube_pose, plate_pose = sample_cube_and_plate_pose()
+            BOX_POSE[0] = cube_pose
+            BOX_POSE[1] = plate_pose
+        elif "sim_transfer_cube" in task_name:
             BOX_POSE[0] = sample_box_pose()  # used in sim reset
         elif "sim_insertion" in task_name:
-            BOX_POSE[0] = np.concatenate(sample_insertion_pose())  # used in sim reset
+            BOX_POSE[0], BOX_POSE[1] = sample_insertion_pose()  # used in sim reset
 
         ts = env.reset()
 
@@ -316,7 +324,7 @@ def eval_bc(config, ckpt_name, save_episode=True):
             pass
 
         rewards = np.array(rewards)
-        episode_return = np.sum(rewards[rewards != None])
+        episode_return = np.sum(rewards[rewards is not None])
         episode_returns.append(episode_return)
         episode_highest_reward = np.max(rewards)
         highest_rewards.append(episode_highest_reward)
@@ -354,6 +362,17 @@ def eval_bc(config, ckpt_name, save_episode=True):
 
 def forward_pass(data, policy):
     image_data, qpos_data, action_data, is_pad = data
+    assert (
+        qpos_data.shape[-1] == 7
+    ), (
+        f"qpos dimension should be 7, got {qpos_data.shape[-1]}"
+    )  # 改为单臂机械臂 TODO 验证后移除断言
+    assert (
+        action_data.shape[-1] == 7
+    ), (
+        f"action dimension should be 7, got {action_data.shape[-1]}"
+    )  # 改为单臂机械臂 TODO 验证后移除断言
+
     image_data, qpos_data, action_data, is_pad = (
         image_data.cuda(),
         qpos_data.cuda(),

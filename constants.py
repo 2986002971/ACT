@@ -27,6 +27,13 @@ SIM_TASK_CONFIGS = {
         "episode_len": 500,
         "camera_names": ["top"],
     },
+    # 新增的单臂任务
+    "sim_move_cube_to_plate": {
+        "dataset_dir": DATA_DIR + "/sim_move_cube_to_plate",
+        "num_episodes": 50,
+        "episode_len": 400,
+        "camera_names": ["top"],  # 仍然使用单个相机
+    },
 }
 
 ### Simulation envs fixed constants
@@ -40,14 +47,6 @@ JOINT_NAMES = [
     "wrist_rotate",
 ]
 START_ARM_POSE = [
-    0,
-    -0.96,
-    1.16,
-    0,
-    -0.3,
-    0,
-    0.02239,
-    -0.02239,
     0,
     -0.96,
     1.16,

@@ -9,7 +9,11 @@ import numpy as np
 
 from constants import PUPPET_GRIPPER_POSITION_NORMALIZE_FN, SIM_TASK_CONFIGS
 from ee_sim_env import make_ee_sim_env
-from scripted_policy import InsertionPolicy, PickAndTransferPolicy
+from scripted_policy import (
+    InsertionPolicy,
+    MoveCubeToPlatePolicy,
+    PickAndTransferPolicy,
+)
 from sim_env import BOX_POSE, make_sim_env
 
 e = IPython.embed
@@ -44,6 +48,8 @@ def main(args):
         policy_cls = PickAndTransferPolicy
     elif task_name == "sim_insertion_scripted":
         policy_cls = InsertionPolicy
+    elif task_name == "sim_move_cube_to_plate":
+        policy_cls = MoveCubeToPlatePolicy
     else:
         raise NotImplementedError
 
@@ -58,8 +64,10 @@ def main(args):
         policy = policy_cls(inject_noise)
         # setup plotting
         if onscreen_render:
-            ax = plt.subplot()
+            fig, ax = plt.subplots()
+            ax.set_axis_off()
             plt_img = ax.imshow(ts.observation["images"][render_cam_name])
+            plt.tight_layout()
             plt.ion()
         for step in range(episode_len):
             action = policy(ts)
@@ -81,12 +89,11 @@ def main(args):
         # replace gripper pose with gripper control
         gripper_ctrl_traj = [ts.observation["gripper_ctrl"] for ts in episode]
         for joint, ctrl in zip(joint_traj, gripper_ctrl_traj):
-            left_ctrl = PUPPET_GRIPPER_POSITION_NORMALIZE_FN(ctrl[0])
-            right_ctrl = PUPPET_GRIPPER_POSITION_NORMALIZE_FN(ctrl[2])
-            joint[6] = left_ctrl
-            joint[6 + 7] = right_ctrl
+            joint[6] = PUPPET_GRIPPER_POSITION_NORMALIZE_FN(ctrl[0])
 
         subtask_info = episode[0].observation["env_state"].copy()  # box pose at step 0
+        cube_pose = subtask_info[:7]  # 前7维是立方体位姿
+        plate_pose = subtask_info[7:]  # 后7维是板子位姿
 
         # clear unused variables
         del env
@@ -96,16 +103,17 @@ def main(args):
         # setup the environment
         print("Replaying joint commands")
         env = make_sim_env(task_name)
-        BOX_POSE[0] = (
-            subtask_info  # make sure the sim_env has the same object configurations as ee_sim_env
-        )
+        BOX_POSE[0] = cube_pose  # 立方体位姿
+        BOX_POSE[1] = plate_pose  # 板子位姿
         ts = env.reset()
 
         episode_replay = [ts]
         # setup plotting
         if onscreen_render:
-            ax = plt.subplot()
+            fig, ax = plt.subplots()
+            ax.set_axis_off()
             plt_img = ax.imshow(ts.observation["images"][render_cam_name])
+            plt.tight_layout()
             plt.ion()
         for t in range(len(joint_traj)):  # note: this will increase episode length by 1
             action = joint_traj[t]
@@ -131,10 +139,10 @@ def main(args):
         observations
         - images
             - each_cam_name     (480, 640, 3) 'uint8'
-        - qpos                  (14,)         'float64'
-        - qvel                  (14,)         'float64'
+        - qpos                  (7,)         'float64'
+        - qvel                  (7,)         'float64'
 
-        action                  (14,)         'float64'
+        action                  (7,)         'float64'
         """
 
         data_dict = {
@@ -180,9 +188,9 @@ def main(args):
                 )
             # compression='gzip',compression_opts=2,)
             # compression=32001, compression_opts=(0, 0, 0, 0, 9, 1, 1), shuffle=False)
-            qpos = obs.create_dataset("qpos", (max_timesteps, 14))
-            qvel = obs.create_dataset("qvel", (max_timesteps, 14))
-            action = root.create_dataset("action", (max_timesteps, 14))
+            obs.create_dataset("qpos", (max_timesteps, 7))
+            obs.create_dataset("qvel", (max_timesteps, 7))
+            action = root.create_dataset("action", (max_timesteps, 7))
 
             for name, array in data_dict.items():
                 root[name][...] = array

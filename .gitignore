@@ -142,3 +142,21 @@ dmypy.json
 # pixi environments
 .pixi
 *.egg-info
+
+*.png
+*.pdf
+*.svg
+*.jpg
+*.jpeg
+
+*.mp4
+*.gif
+*.webm
+*.ogg
+*.mp3
+*.wav
+
+*.ckpt
+*.pth
+*.pt
+*.pkl
